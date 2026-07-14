@@ -8,57 +8,85 @@ pipeline {
 
         DOCKER_IMAGE = 'umramahejabeen/invoice-tracker'
 
-        GITHUB_REPO = 'https://github.com/Umramahejabeen/invoice-tracker.git'
+        DOCKER_CREDENTIALS = 'dockerhub-creds'
+
+        EC2_CREDENTIALS = 'ec2-ssh-key'
+
+        CONTAINER_NAME = 'invoice-tracker'
+
+        APP_PORT = '5000'
     }
 
     stages {
 
         stage('Checkout SCM') {
             steps {
+                echo '========================================'
+                echo 'CHECKOUT SOURCE CODE'
+                echo '========================================'
+
                 checkout scm
             }
         }
 
         stage('Check Python') {
             steps {
-                bat """
-                "${PYTHON_EXE}" --version
-                """
+                echo '========================================'
+                echo 'CHECK PYTHON VERSION'
+                echo '========================================'
+
+                bat '"%PYTHON_EXE%" --version'
             }
         }
 
         stage('Create Virtual Environment') {
             steps {
-                bat """
-                if not exist venv (
-                    "${PYTHON_EXE}" -m venv venv
-                )
-                """
+                echo '========================================'
+                echo 'CREATE PYTHON VIRTUAL ENVIRONMENT'
+                echo '========================================'
+
+                bat '''
+                    if not exist venv (
+                        "%PYTHON_EXE%" -m venv venv
+                    )
+                '''
             }
         }
 
         stage('Install Dependencies') {
             steps {
+                echo '========================================'
+                echo 'INSTALL PYTHON DEPENDENCIES'
+                echo '========================================'
+
                 bat '''
-                venv\\Scripts\\python.exe -m pip install --upgrade pip
-                venv\\Scripts\\python.exe -m pip install -r requirements.txt
-                venv\\Scripts\\python.exe -m pip install -r requirements-dev.txt
+                    venv\\Scripts\\python.exe -m pip install --upgrade pip
+                    venv\\Scripts\\python.exe -m pip install -r requirements.txt
+                    venv\\Scripts\\python.exe -m pip install -r requirements-dev.txt
                 '''
             }
         }
 
         stage('Lint') {
             steps {
+                echo '========================================'
+                echo 'RUN FLAKE8'
+                echo '========================================'
+
                 bat '''
-                venv\\Scripts\\python.exe -m flake8 app --max-line-length=120
+                    venv\\Scripts\\python.exe -m flake8 app --max-line-length=120
                 '''
             }
         }
 
         stage('Test') {
             steps {
+                echo '========================================'
+                echo 'RUN PYTEST'
+                echo '========================================'
+
                 bat '''
-                venv\\Scripts\\python.exe -m pytest --junitxml=test-results.xml
+                    venv\\Scripts\\python.exe -m pytest --junitxml=test-results.xml
                 '''
             }
 
@@ -72,21 +100,33 @@ pipeline {
 
         stage('Prepare EC2') {
             steps {
+                echo '========================================'
+                echo 'TEST EC2 SSH CONNECTION'
+                echo '========================================'
+
                 withCredentials([
                     sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
+                        credentialsId: "${EC2_CREDENTIALS}",
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
                     bat '''
-                    icacls "%SSH_KEY%" /inheritance:r
-                    icacls "%SSH_KEY%" /remove "BUILTIN\\Users"
-                    icacls "%SSH_KEY%" /remove "Authenticated Users"
-                    icacls "%SSH_KEY%" /remove "Everyone"
-                    icacls "%SSH_KEY%" /grant:r "%USERNAME%:R"
+                        echo Copying Jenkins SSH key...
 
-                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "docker --version"
+                        copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
+
+                        echo Fixing SSH key permissions...
+
+                        icacls "%WORKSPACE%\\jenkins-ec2-key.pem" /inheritance:r
+
+                        icacls "%WORKSPACE%\\jenkins-ec2-key.pem" /grant:r "SYSTEM:(R)"
+
+                        icacls "%WORKSPACE%\\jenkins-ec2-key.pem" /grant:r "Administrators:(R)"
+
+                        echo Testing SSH connection...
+
+                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "docker --version"
                     '''
                 }
             }
@@ -94,21 +134,19 @@ pipeline {
 
         stage('Clone Project on EC2') {
             steps {
+                echo '========================================'
+                echo 'CLONE PROJECT ON EC2'
+                echo '========================================'
+
                 withCredentials([
                     sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
+                        credentialsId: "${EC2_CREDENTIALS}",
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
                     bat '''
-                    icacls "%SSH_KEY%" /inheritance:r
-                    icacls "%SSH_KEY%" /remove "BUILTIN\\Users"
-                    icacls "%SSH_KEY%" /remove "Authenticated Users"
-                    icacls "%SSH_KEY%" /remove "Everyone"
-                    icacls "%SSH_KEY%" /grant:r "%USERNAME%:R"
-
-                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "rm -rf invoice-tracker && git clone %GITHUB_REPO% invoice-tracker"
+                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "rm -rf ~/invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git ~/invoice-tracker"
                     '''
                 }
             }
@@ -116,49 +154,47 @@ pipeline {
 
         stage('Docker Hub Login') {
             steps {
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    ),
+                echo '========================================'
+                echo 'DOCKER HUB LOGIN ON EC2'
+                echo '========================================'
 
+                withCredentials([
                     usernamePassword(
-                        credentialsId: 'dockerhub-creds',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
+                        credentialsId: "${DOCKER_CREDENTIALS}",
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
                     )
                 ]) {
-                    bat '''
-                    icacls "%SSH_KEY%" /inheritance:r
-                    icacls "%SSH_KEY%" /remove "BUILTIN\\Users"
-                    icacls "%SSH_KEY%" /remove "Authenticated Users"
-                    icacls "%SSH_KEY%" /remove "Everyone"
-                    icacls "%SSH_KEY%" /grant:r "%USERNAME%:R"
-
-                    echo %DOCKER_PASS% | ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "docker login -u %DOCKER_USER% --password-stdin"
-                    '''
+                    withCredentials([
+                        sshUserPrivateKey(
+                            credentialsId: "${EC2_CREDENTIALS}",
+                            keyFileVariable: 'SSH_KEY',
+                            usernameVariable: 'SSH_USER'
+                        )
+                    ]) {
+                        bat '''
+                            echo %DOCKER_PASSWORD% | ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "docker login -u %DOCKER_USERNAME% --password-stdin"
+                        '''
+                    }
                 }
             }
         }
 
         stage('Build Docker Image') {
             steps {
+                echo '========================================'
+                echo 'BUILD DOCKER IMAGE ON EC2'
+                echo '========================================'
+
                 withCredentials([
                     sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
+                        credentialsId: "${EC2_CREDENTIALS}",
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
                     bat '''
-                    icacls "%SSH_KEY%" /inheritance:r
-                    icacls "%SSH_KEY%" /remove "BUILTIN\\Users"
-                    icacls "%SSH_KEY%" /remove "Authenticated Users"
-                    icacls "%SSH_KEY%" /remove "Everyone"
-                    icacls "%SSH_KEY%" /grant:r "%USERNAME%:R"
-
-                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "cd invoice-tracker && docker build -t %DOCKER_IMAGE%:latest ."
+                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "cd ~/invoice-tracker && docker build -t %DOCKER_IMAGE%:latest ."
                     '''
                 }
             }
@@ -166,21 +202,19 @@ pipeline {
 
         stage('Push Docker Image') {
             steps {
+                echo '========================================'
+                echo 'PUSH IMAGE TO DOCKER HUB'
+                echo '========================================'
+
                 withCredentials([
                     sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
+                        credentialsId: "${EC2_CREDENTIALS}",
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
                     bat '''
-                    icacls "%SSH_KEY%" /inheritance:r
-                    icacls "%SSH_KEY%" /remove "BUILTIN\\Users"
-                    icacls "%SSH_KEY%" /remove "Authenticated Users"
-                    icacls "%SSH_KEY%" /remove "Everyone"
-                    icacls "%SSH_KEY%" /grant:r "%USERNAME%:R"
-
-                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "docker push %DOCKER_IMAGE%:latest"
+                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "docker push %DOCKER_IMAGE%:latest"
                     '''
                 }
             }
@@ -188,21 +222,19 @@ pipeline {
 
         stage('Run Container') {
             steps {
+                echo '========================================'
+                echo 'RUN FLASK CONTAINER'
+                echo '========================================'
+
                 withCredentials([
                     sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
+                        credentialsId: "${EC2_CREDENTIALS}",
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
                     bat '''
-                    icacls "%SSH_KEY%" /inheritance:r
-                    icacls "%SSH_KEY%" /remove "BUILTIN\\Users"
-                    icacls "%SSH_KEY%" /remove "Authenticated Users"
-                    icacls "%SSH_KEY%" /remove "Everyone"
-                    icacls "%SSH_KEY%" /grant:r "%USERNAME%:R"
-
-                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "docker rm -f invoice-tracker || true && docker run -d --name invoice-tracker -p 5000:5000 %DOCKER_IMAGE%:latest"
+                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "docker rm -f %CONTAINER_NAME% 2>/dev/null || true && docker run -d --name %CONTAINER_NAME% --restart unless-stopped -p %APP_PORT%:%APP_PORT% %DOCKER_IMAGE%:latest"
                     '''
                 }
             }
@@ -210,21 +242,19 @@ pipeline {
 
         stage('Check Container') {
             steps {
+                echo '========================================'
+                echo 'CHECK CONTAINER'
+                echo '========================================'
+
                 withCredentials([
                     sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
+                        credentialsId: "${EC2_CREDENTIALS}",
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
                     bat '''
-                    icacls "%SSH_KEY%" /inheritance:r
-                    icacls "%SSH_KEY%" /remove "BUILTIN\\Users"
-                    icacls "%SSH_KEY%" /remove "Authenticated Users"
-                    icacls "%SSH_KEY%" /remove "Everyone"
-                    icacls "%SSH_KEY%" /grant:r "%USERNAME%:R"
-
-                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "docker ps && docker logs invoice-tracker"
+                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "docker ps"
                     '''
                 }
             }
@@ -232,21 +262,19 @@ pipeline {
 
         stage('Health Check') {
             steps {
+                echo '========================================'
+                echo 'APPLICATION HEALTH CHECK'
+                echo '========================================'
+
                 withCredentials([
                     sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
+                        credentialsId: "${EC2_CREDENTIALS}",
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
                     bat '''
-                    icacls "%SSH_KEY%" /inheritance:r
-                    icacls "%SSH_KEY%" /remove "BUILTIN\\Users"
-                    icacls "%SSH_KEY%" /remove "Authenticated Users"
-                    icacls "%SSH_KEY%" /remove "Everyone"
-                    icacls "%SSH_KEY%" /grant:r "%USERNAME%:R"
-
-                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "sleep 5 && curl -f http://localhost:5000/health"
+                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "sleep 5 && curl -f http://localhost:%APP_PORT%/health"
                     '''
                 }
             }
@@ -254,22 +282,32 @@ pipeline {
     }
 
     post {
+
         success {
-            echo '========================================='
-            echo 'PIPELINE SUCCESSFUL'
-            echo 'Invoice Tracker deployed on AWS EC2'
-            echo 'Docker image pushed to Docker Hub'
-            echo '========================================='
+            echo '========================================'
+            echo 'PIPELINE SUCCESS'
+            echo '========================================'
+            echo 'Invoice Tracker deployed successfully.'
+            echo 'Application URL:'
+            echo "http://${EC2_HOST}:${APP_PORT}/health"
         }
 
         failure {
-            echo '========================================='
+            echo '========================================'
             echo 'PIPELINE FAILED'
             echo 'Check Jenkins Console Output'
-            echo '========================================='
+            echo '========================================'
         }
 
         always {
+            echo 'Cleaning temporary SSH key...'
+
+            bat '''
+                if exist "%WORKSPACE%\\jenkins-ec2-key.pem" (
+                    del /F /Q "%WORKSPACE%\\jenkins-ec2-key.pem"
+                )
+            '''
+
             echo 'Invoice Tracker Jenkins Pipeline finished.'
         }
     }
