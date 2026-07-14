@@ -2,41 +2,53 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = 'invoice-tracker'
-        DOCKER_REPO = 'umramahejabeen/invoice-tracker'
-        PYTHON_EXE = 'C:\\Users\\umram\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
+        PYTHON = 'C:\\Users\\umram\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
+
+        DOCKER_IMAGE = 'umramahejabeen/invoice-tracker'
+        EC2_HOST = '3.110.212.222'
+        EC2_USER = 'ec2-user'
     }
 
     stages {
 
-        stage('Check Python') {
+        stage('Checkout SCM') {
             steps {
-                bat '"%PYTHON_EXE%" --version'
+                checkout scm
             }
         }
 
         stage('Create Virtual Environment') {
             steps {
-                bat '"%PYTHON_EXE%" -m venv venv'
+                bat '''
+                if not exist venv (
+                    "%PYTHON%" -m venv venv
+                )
+                '''
             }
         }
 
         stage('Install Dependencies') {
             steps {
-                bat 'venv\\Scripts\\python.exe -m pip install --upgrade pip'
-                bat 'venv\\Scripts\\python.exe -m pip install -r requirements-dev.txt'
+                bat '''
+                venv\\Scripts\\python.exe -m pip install --upgrade pip
+                venv\\Scripts\\python.exe -m pip install -r requirements-dev.txt
+                '''
             }
         }
 
         stage('Lint') {
             steps {
-                bat 'venv\\Scripts\\python.exe -m flake8 app --max-line-length=120'
+                bat '''
+                venv\\Scripts\\python.exe -m flake8 app --max-line-length=120
+                '''
             }
         }
 
         stage('Test') {
             steps {
-                bat 'venv\\Scripts\\python.exe -m pytest tests -v --junitxml=test-results.xml'
+                bat '''
+                venv\\Scripts\\python.exe -m pytest --junitxml=test-results.xml
+                '''
             }
 
             post {
@@ -47,39 +59,80 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Deploy to EC2') {
             steps {
-                bat 'docker build -t %DOCKER_IMAGE%:latest .'
+                sshagent(credentials: ['ec2-ssh-key']) {
+
+                    bat '''
+                    ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "rm -rf invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git"
+                    '''
+
+                    bat '''
+                    ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "cd invoice-tracker && sudo docker build -t %DOCKER_IMAGE%:latest ."
+                    '''
+                }
+            }
+        }
+
+        stage('Docker Hub Login') {
+            steps {
+                sshagent(credentials: ['ec2-ssh-key']) {
+
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 'dockerhub-creds',
+                            usernameVariable: 'DOCKER_USER',
+                            passwordVariable: 'DOCKER_PASSWORD'
+                        )
+                    ]) {
+
+                        bat '''
+                        echo %DOCKER_PASSWORD% | ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "sudo docker login -u %DOCKER_USER% --password-stdin"
+                        '''
+
+                    }
+                }
             }
         }
 
         stage('Push Docker Image') {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub-creds',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
+                sshagent(credentials: ['ec2-ssh-key']) {
+
                     bat '''
-                        echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
-                        docker tag %DOCKER_IMAGE%:latest %DOCKER_REPO%:latest
-                        docker push %DOCKER_REPO%:latest
+                    ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "sudo docker push %DOCKER_IMAGE%:latest"
                     '''
+
+                }
+            }
+        }
+
+        stage('Run Container') {
+            steps {
+                sshagent(credentials: ['ec2-ssh-key']) {
+
+                    bat '''
+                    ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "sudo docker rm -f invoice-tracker || true"
+                    '''
+
+                    bat '''
+                    ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "sudo docker run -d --name invoice-tracker -p 5000:5000 %DOCKER_IMAGE%:latest"
+                    '''
+
                 }
             }
         }
     }
 
     post {
+
         success {
-            echo 'CI Pipeline completed successfully!'
-            echo 'Docker image pushed to Docker Hub.'
+            echo 'Invoice Tracker CI/CD Pipeline SUCCESS'
+            echo 'Application deployed successfully to AWS EC2'
         }
 
         failure {
-            echo 'Pipeline failed. Check the Jenkins Console Output.'
+            echo 'Pipeline FAILED. Check Console Output.'
         }
 
         always {
