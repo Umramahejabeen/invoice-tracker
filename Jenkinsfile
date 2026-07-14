@@ -4,13 +4,20 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'invoice-tracker'
         DOCKER_REPO = 'umramahejabeen/invoice-tracker'
+        PYTHON_EXE = 'C:\\Users\\umram\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
     }
 
     stages {
 
+        stage('Check Python') {
+            steps {
+                bat '"%PYTHON_EXE%" --version'
+            }
+        }
+
         stage('Create Virtual Environment') {
             steps {
-                bat 'python -m venv venv'
+                bat '"%PYTHON_EXE%" -m venv venv'
             }
         }
 
@@ -34,7 +41,8 @@ pipeline {
 
             post {
                 always {
-                    junit allowEmptyResults: true, testResults: 'test-results.xml'
+                    junit allowEmptyResults: true,
+                          testResults: 'test-results.xml'
                 }
             }
         }
@@ -55,9 +63,9 @@ pipeline {
                     )
                 ]) {
                     bat '''
-                    echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
-                    docker tag %DOCKER_IMAGE%:latest %DOCKER_REPO%:latest
-                    docker push %DOCKER_REPO%:latest
+                        echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
+                        docker tag %DOCKER_IMAGE%:latest %DOCKER_REPO%:latest
+                        docker push %DOCKER_REPO%:latest
                     '''
                 }
             }
