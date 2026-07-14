@@ -50,8 +50,16 @@ def add_invoice():
     data = request.get_json()
 
     required_fields = ["client_id", "project_name", "amount", "due_date"]
+
     if not data or any(field not in data for field in required_fields):
-        return jsonify({"error": "client_id, project_name, amount, and due_date are required"}), 400
+        return jsonify(
+            {
+                "error": (
+                    "client_id, project_name, amount, "
+                    "and due_date are required"
+                )
+            }
+        ), 400
 
     if get_client(data["client_id"]) is None:
         return jsonify({"error": "client not found"}), 404
@@ -89,8 +97,11 @@ def change_invoice_status(invoice_id):
         return jsonify({"error": "status is required"}), 400
 
     allowed_statuses = ["pending", "paid", "overdue"]
+
     if data["status"] not in allowed_statuses:
-        return jsonify({"error": "status must be pending, paid, or overdue"}), 400
+        return jsonify(
+            {"error": "status must be pending, paid, or overdue"}
+        ), 400
 
     invoice = update_invoice_status(invoice_id, data["status"])
 
