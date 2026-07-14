@@ -8,26 +8,33 @@ pipeline {
 
     stages {
 
+        stage('Create Virtual Environment') {
+            steps {
+                bat 'python -m venv venv'
+            }
+        }
+
         stage('Install Dependencies') {
             steps {
-                bat 'venv\\Scripts\\python -m pip install -r requirements-dev.txt'
+                bat 'venv\\Scripts\\python.exe -m pip install --upgrade pip'
+                bat 'venv\\Scripts\\python.exe -m pip install -r requirements-dev.txt'
             }
         }
 
         stage('Lint') {
             steps {
-                bat 'venv\\Scripts\\python -m flake8 app --max-line-length=120'
+                bat 'venv\\Scripts\\python.exe -m flake8 app --max-line-length=120'
             }
         }
 
         stage('Test') {
             steps {
-                bat 'venv\\Scripts\\python -m pytest tests -v --junitxml=test-results.xml'
+                bat 'venv\\Scripts\\python.exe -m pytest tests -v --junitxml=test-results.xml'
             }
 
             post {
                 always {
-                    junit 'test-results.xml'
+                    junit allowEmptyResults: true, testResults: 'test-results.xml'
                 }
             }
         }
@@ -48,9 +55,9 @@ pipeline {
                     )
                 ]) {
                     bat '''
-                        echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
-                        docker tag %DOCKER_IMAGE%:latest %DOCKER_REPO%:latest
-                        docker push %DOCKER_REPO%:latest
+                    echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
+                    docker tag %DOCKER_IMAGE%:latest %DOCKER_REPO%:latest
+                    docker push %DOCKER_REPO%:latest
                     '''
                 }
             }
