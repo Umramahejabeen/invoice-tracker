@@ -2,11 +2,13 @@ pipeline {
     agent any
 
     environment {
-        PYTHON = 'C:\\Users\\umram\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
+        PYTHON_EXE = 'C:\\Users\\umram\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
+
+        EC2_HOST = 'YOUR_EC2_PUBLIC_IP'
 
         DOCKER_IMAGE = 'umramahejabeen/invoice-tracker'
-        EC2_HOST = '3.110.212.222'
-        EC2_USER = 'ec2-user'
+
+        GITHUB_REPO = 'https://github.com/Umramahejabeen/invoice-tracker.git'
     }
 
     stages {
@@ -17,13 +19,21 @@ pipeline {
             }
         }
 
+        stage('Check Python') {
+            steps {
+                bat """
+                "${PYTHON_EXE}" --version
+                """
+            }
+        }
+
         stage('Create Virtual Environment') {
             steps {
-                bat '''
+                bat """
                 if not exist venv (
-                    "%PYTHON%" -m venv venv
+                    "${PYTHON_EXE}" -m venv venv
                 )
-                '''
+                """
             }
         }
 
@@ -31,6 +41,7 @@ pipeline {
             steps {
                 bat '''
                 venv\\Scripts\\python.exe -m pip install --upgrade pip
+                venv\\Scripts\\python.exe -m pip install -r requirements.txt
                 venv\\Scripts\\python.exe -m pip install -r requirements-dev.txt
                 '''
             }
@@ -59,16 +70,33 @@ pipeline {
             }
         }
 
-        stage('Deploy to EC2') {
+        stage('Prepare EC2') {
             steps {
-                sshagent(credentials: ['ec2-ssh-key']) {
-
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
                     bat '''
-                    ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "rm -rf invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git"
+                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "docker --version"
                     '''
+                }
+            }
+        }
 
+        stage('Clone Project on EC2') {
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
                     bat '''
-                    ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "cd invoice-tracker && sudo docker build -t %DOCKER_IMAGE%:latest ."
+                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "rm -rf invoice-tracker && git clone %GITHUB_REPO% invoice-tracker"
                     '''
                 }
             }
@@ -76,63 +104,98 @@ pipeline {
 
         stage('Docker Hub Login') {
             steps {
-                sshagent(credentials: ['ec2-ssh-key']) {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    ),
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )
+                ]) {
+                    bat '''
+                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "docker login -u %DOCKER_USER% -p %DOCKER_PASS%"
+                    '''
+                }
+            }
+        }
 
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'dockerhub-creds',
-                            usernameVariable: 'DOCKER_USER',
-                            passwordVariable: 'DOCKER_PASSWORD'
-                        )
-                    ]) {
-
-                        bat '''
-                        echo %DOCKER_PASSWORD% | ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "sudo docker login -u %DOCKER_USER% --password-stdin"
-                        '''
-
-                    }
+        stage('Build Docker Image') {
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
+                    bat '''
+                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "cd invoice-tracker && docker build -t %DOCKER_IMAGE%:latest ."
+                    '''
                 }
             }
         }
 
         stage('Push Docker Image') {
             steps {
-                sshagent(credentials: ['ec2-ssh-key']) {
-
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
                     bat '''
-                    ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "sudo docker push %DOCKER_IMAGE%:latest"
+                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "docker push %DOCKER_IMAGE%:latest"
                     '''
-
                 }
             }
         }
 
         stage('Run Container') {
             steps {
-                sshagent(credentials: ['ec2-ssh-key']) {
-
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
                     bat '''
-                    ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "sudo docker rm -f invoice-tracker || true"
+                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "docker rm -f invoice-tracker || true && docker run -d --name invoice-tracker -p 5000:5000 %DOCKER_IMAGE%:latest"
                     '''
+                }
+            }
+        }
 
+        stage('Check Container') {
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
                     bat '''
-                    ssh -o StrictHostKeyChecking=no %EC2_USER%@%EC2_HOST% "sudo docker run -d --name invoice-tracker -p 5000:5000 %DOCKER_IMAGE%:latest"
+                    ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@%EC2_HOST% "docker ps"
                     '''
-
                 }
             }
         }
     }
 
     post {
-
         success {
-            echo 'Invoice Tracker CI/CD Pipeline SUCCESS'
-            echo 'Application deployed successfully to AWS EC2'
+            echo 'Invoice Tracker Jenkins Pipeline completed successfully!'
+            echo 'Application deployed successfully on AWS EC2.'
         }
 
         failure {
-            echo 'Pipeline FAILED. Check Console Output.'
+            echo 'Pipeline FAILED. Check Jenkins Console Output.'
         }
 
         always {
