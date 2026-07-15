@@ -267,53 +267,46 @@ pipeline {
         }
 
         stage('Push Docker Image') {
-            steps {
-                echo '========================================'
-                echo 'LOGIN AND PUSH DOCKER IMAGE'
-                echo '========================================'
+    steps {
 
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: "${DOCKER_CREDENTIALS}",
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_TOKEN'
-                    ),
+        echo '========================================'
+        echo 'LOGIN AND PUSH DOCKER IMAGE'
+        echo '========================================'
 
-                    sshUserPrivateKey(
-                        credentialsId: "${EC2_CREDENTIALS}",
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
+        withCredentials([
 
-                    bat '''
-                        echo Logging in to Docker Hub on EC2...
+            usernamePassword(
+                credentialsId: "${DOCKER_CREDENTIALS}",
+                usernameVariable: 'DOCKER_USER',
+                passwordVariable: 'DOCKER_TOKEN'
+            ),
 
-                        powershell -NoProfile -Command ^
-                        "$env:DOCKER_TOKEN | ssh -o StrictHostKeyChecking=no -i `"$env:WORKSPACE\\jenkins-ec2-key.pem`" `"$env:SSH_USER@$env:EC2_HOST`" `"docker login -u $env:DOCKER_USER --password-stdin`""
+            sshUserPrivateKey(
+                credentialsId: "${EC2_CREDENTIALS}",
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
+            )
 
-                        if errorlevel 1 (
-                            echo Docker Hub login failed
-                            exit /b 1
-                        )
+        ]) {
 
-                        echo Docker Hub login successful
+            bat '''
+copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
 
-                        ssh -o StrictHostKeyChecking=no ^
-                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
-                        %SSH_USER%@%EC2_HOST% ^
-                        "docker push %IMAGE_NAME%:latest"
+ssh -o StrictHostKeyChecking=no ^
+-i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+%SSH_USER%@%EC2_HOST% ^
+"echo '%DOCKER_TOKEN%' | docker login -u %DOCKER_USER% --password-stdin && docker push %IMAGE_NAME%:latest"
 
-                        if errorlevel 1 (
-                            echo Docker image push failed
-                            exit /b 1
-                        )
+if errorlevel 1 (
+    echo Docker push failed
+    exit /b 1
+)
 
-                        echo Docker image pushed successfully
-                    '''
-                }
-            }
+echo Docker image pushed successfully
+'''
         }
+    }
+}
 
         stage('Run Container') {
             steps {
@@ -330,10 +323,10 @@ pipeline {
                 ]) {
 
                     bat '''
-                        ssh -o StrictHostKeyChecking=no ^
+                       ssh -o StrictHostKeyChecking=no ^
                         -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
                         %SSH_USER%@%EC2_HOST% ^
-                        "docker rm -f %CONTAINER_NAME% 2>/dev/null || true; docker run -d --name %CONTAINER_NAME% -p %APP_PORT%:%APP_PORT% %IMAGE_NAME%:latest"
+                        "docker rm -f invoice-tracker >/dev/null 2>&1; docker run -d --name invoice-tracker -p 5000:5000 umramahejabeen/invoice-tracker:latest"
 
                         if errorlevel 1 (
                             echo Container deployment failed
