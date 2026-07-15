@@ -3,31 +3,57 @@ pipeline {
     agent any
 
     environment {
+        // ==============================
+        // GITHUB
+        // ==============================
+        GIT_REPO = 'https://github.com/Umramahejabeen/invoice-tracker.git'
+        GIT_BRANCH = 'main'
 
-        PYTHON_EXE = 'C:\\Users\\umram\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
-
+        // ==============================
+        // EC2
+        // ==============================
         EC2_HOST = '13.206.204.208'
-
-        DOCKER_IMAGE = 'umramahejabeen/invoice-tracker'
-
-        DOCKER_CREDENTIALS = 'dockerhub-creds'
-
         EC2_CREDENTIALS = 'ec2-ssh-key'
 
-        CONTAINER_NAME = 'invoice-tracker'
+        // ==============================
+        // DOCKER
+        // ==============================
+        DOCKER_USERNAME = 'umramahejabeen'
+        DOCKER_IMAGE = 'umramahejabeen/invoice-tracker'
+        IMAGE_TAG = "${BUILD_NUMBER}"
 
+        // ==============================
+        // APPLICATION
+        // ==============================
+        CONTAINER_NAME = 'invoice-tracker'
         APP_PORT = '5000'
+        HOST_PORT = '5000'
     }
 
 
     stages {
 
-        // =========================================================
+        // ==================================================
+        // CHECKOUT SOURCE CODE
+        // ==================================================
+
+        stage('Checkout SCM') {
+            steps {
+
+                echo '========================================'
+                echo 'CHECKOUT SOURCE CODE'
+                echo '========================================'
+
+                checkout scm
+            }
+        }
+
+
+        // ==================================================
         // CHECK PYTHON
-        // =========================================================
+        // ==================================================
 
         stage('Check Python') {
-
             steps {
 
                 echo '========================================'
@@ -35,41 +61,39 @@ pipeline {
                 echo '========================================'
 
                 bat '''
-                    "%PYTHON_EXE%" --version
+                    python --version
                 '''
             }
         }
 
 
-        // =========================================================
+        // ==================================================
         // CREATE VIRTUAL ENVIRONMENT
-        // =========================================================
+        // ==================================================
 
         stage('Create Virtual Environment') {
-
             steps {
 
                 echo '========================================'
-                echo 'CREATE VIRTUAL ENVIRONMENT'
+                echo 'CREATE PYTHON VIRTUAL ENVIRONMENT'
                 echo '========================================'
 
                 bat '''
-                    if not exist venv (
-                        "%PYTHON_EXE%" -m venv venv
+                    if exist venv (
+                        echo Virtual environment already exists
+                    ) else (
+                        python -m venv venv
                     )
-
-                    venv\\Scripts\\python.exe --version
                 '''
             }
         }
 
 
-        // =========================================================
+        // ==================================================
         // INSTALL DEPENDENCIES
-        // =========================================================
+        // ==================================================
 
         stage('Install Dependencies') {
-
             steps {
 
                 echo '========================================'
@@ -78,7 +102,6 @@ pipeline {
 
                 bat '''
                     venv\\Scripts\\python.exe -m pip install --upgrade pip
-
                     venv\\Scripts\\python.exe -m pip install -r requirements.txt
 
                     if exist requirements-dev.txt (
@@ -89,12 +112,11 @@ pipeline {
         }
 
 
-        // =========================================================
-        // LINT
-        // =========================================================
+        // ==================================================
+        // PYTHON LINT
+        // ==================================================
 
         stage('Lint') {
-
             steps {
 
                 echo '========================================'
@@ -108,12 +130,11 @@ pipeline {
         }
 
 
-        // =========================================================
-        // TEST
-        // =========================================================
+        // ==================================================
+        // RUN TESTS
+        // ==================================================
 
         stage('Test') {
-
             steps {
 
                 echo '========================================'
@@ -121,42 +142,35 @@ pipeline {
                 echo '========================================'
 
                 bat '''
-                    venv\\Scripts\\python.exe -m pytest tests -v
+                    venv\\Scripts\\python.exe -m pytest -v
                 '''
             }
         }
 
 
-        // =========================================================
+        // ==================================================
         // PREPARE EC2
-        // =========================================================
+        // ==================================================
 
         stage('Prepare EC2') {
-
             steps {
 
                 echo '========================================'
-                echo 'TEST EC2 SSH CONNECTION'
+                echo 'PREPARE EC2 SERVER'
                 echo '========================================'
 
                 withCredentials([
-
                     sshUserPrivateKey(
-
                         credentialsId: "${EC2_CREDENTIALS}",
-
                         keyFileVariable: 'SSH_KEY',
-
                         usernameVariable: 'SSH_USER'
                     )
-
                 ]) {
 
                     bat '''
                         echo Copying Jenkins SSH key...
 
                         copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
-
 
                         echo Fixing SSH key permissions...
 
@@ -166,27 +180,31 @@ pipeline {
 
                         icacls "%WORKSPACE%\\jenkins-ec2-key.pem" /grant:r "Administrators:(R)"
 
-
-                        echo Testing SSH connection...
+                        echo Testing EC2 SSH connection...
 
                         ssh ^
                         -o StrictHostKeyChecking=no ^
-                        -o ConnectTimeout=30 ^
                         -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
                         %SSH_USER%@%EC2_HOST% ^
                         "docker --version"
+
+                        if errorlevel 1 (
+                            echo EC2 SSH connection failed
+                            exit /b 1
+                        )
+
+                        echo EC2 connection successful
                     '''
                 }
             }
         }
 
 
-        // =========================================================
+        // ==================================================
         // CLONE PROJECT ON EC2
-        // =========================================================
+        // ==================================================
 
         stage('Clone Project on EC2') {
-
             steps {
 
                 echo '========================================'
@@ -194,208 +212,189 @@ pipeline {
                 echo '========================================'
 
                 withCredentials([
-
                     sshUserPrivateKey(
-
                         credentialsId: "${EC2_CREDENTIALS}",
-
                         keyFileVariable: 'SSH_KEY',
-
                         usernameVariable: 'SSH_USER'
                     )
-
                 ]) {
 
                     bat '''
-                        copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
-
                         ssh ^
                         -o StrictHostKeyChecking=no ^
                         -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
                         %SSH_USER%@%EC2_HOST% ^
-                        "rm -rf ~/invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git ~/invoice-tracker"
-                    '''
-                }
-            }
-        }
-
-
-        // =========================================================
-        // DOCKER HUB LOGIN
-        // =========================================================
-
-        stage('Docker Hub Login') {
-
-            steps {
-
-                echo '========================================'
-                echo 'DOCKER HUB LOGIN ON EC2'
-                echo '========================================'
-
-                withCredentials([
-
-                    usernamePassword(
-
-                        credentialsId: "${DOCKER_CREDENTIALS}",
-
-                        usernameVariable: 'DOCKER_USERNAME',
-
-                        passwordVariable: 'DOCKER_PASSWORD'
-                    ),
-
-                    sshUserPrivateKey(
-
-                        credentialsId: "${EC2_CREDENTIALS}",
-
-                        keyFileVariable: 'SSH_KEY',
-
-                        usernameVariable: 'SSH_USER'
-                    )
-
-                ]) {
-
-                    bat '''
-                        echo Logging in to Docker Hub on EC2...
-
-                        copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
-
-                        powershell -NoProfile -Command "$env:DOCKER_PASSWORD | ssh -o StrictHostKeyChecking=no -i \\"$env:WORKSPACE\\jenkins-ec2-key.pem\\" \\"$env:SSH_USER@$env:EC2_HOST\\" 'docker login --username $env:DOCKER_USERNAME --password-stdin'"
+                        "rm -rf ~/invoice-tracker && git clone %GIT_REPO% ~/invoice-tracker"
 
                         if errorlevel 1 (
-                            echo Docker Hub login failed
+                            echo Project clone failed
                             exit /b 1
                         )
 
-                        echo Docker Hub Login Successful
+                        echo Project cloned successfully
                     '''
                 }
             }
         }
 
 
-        // =========================================================
+        // ==================================================
+        // CHECK DOCKER ON EC2
+        // ==================================================
+
+        stage('Check Docker') {
+            steps {
+
+                echo '========================================'
+                echo 'CHECK DOCKER ON EC2'
+                echo '========================================'
+
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: "${EC2_CREDENTIALS}",
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
+
+                    bat '''
+                        ssh ^
+                        -o StrictHostKeyChecking=no ^
+                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        %SSH_USER%@%EC2_HOST% ^
+                        "docker info"
+
+                        if errorlevel 1 (
+                            echo Docker is not working on EC2
+                            exit /b 1
+                        )
+
+                        echo Docker is working on EC2
+                    '''
+                }
+            }
+        }
+
+
+        // ==================================================
         // BUILD DOCKER IMAGE
-        // =========================================================
+        // ==================================================
 
         stage('Build Docker Image') {
-
             steps {
 
                 echo '========================================'
-                echo 'BUILD DOCKER IMAGE'
+                echo 'BUILD DOCKER IMAGE ON EC2'
                 echo '========================================'
 
                 withCredentials([
-
                     sshUserPrivateKey(
-
                         credentialsId: "${EC2_CREDENTIALS}",
-
                         keyFileVariable: 'SSH_KEY',
-
                         usernameVariable: 'SSH_USER'
                     )
-
                 ]) {
 
                     bat '''
-                        copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
-
                         ssh ^
                         -o StrictHostKeyChecking=no ^
                         -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
                         %SSH_USER%@%EC2_HOST% ^
-                        "cd ~/invoice-tracker && docker build -t %DOCKER_IMAGE%:latest ."
+                        "cd ~/invoice-tracker && docker build -t %DOCKER_IMAGE%:%IMAGE_TAG% -t %DOCKER_IMAGE%:latest ."
+
+                        if errorlevel 1 (
+                            echo Docker image build failed
+                            exit /b 1
+                        )
+
+                        echo Docker image built successfully
                     '''
                 }
             }
         }
 
 
-        // =========================================================
+        // ==================================================
         // PUSH DOCKER IMAGE
-        // =========================================================
+        // ==================================================
 
         stage('Push Docker Image') {
-
             steps {
 
                 echo '========================================'
-                echo 'PUSH DOCKER IMAGE'
+                echo 'PUSH DOCKER IMAGE TO DOCKER HUB'
                 echo '========================================'
 
                 withCredentials([
-
                     sshUserPrivateKey(
-
                         credentialsId: "${EC2_CREDENTIALS}",
-
                         keyFileVariable: 'SSH_KEY',
-
                         usernameVariable: 'SSH_USER'
                     )
-
                 ]) {
 
                     bat '''
-                        copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
-
                         ssh ^
                         -o StrictHostKeyChecking=no ^
                         -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
                         %SSH_USER%@%EC2_HOST% ^
-                        "docker push %DOCKER_IMAGE%:latest"
+                        "docker push %DOCKER_IMAGE%:%IMAGE_TAG% && docker push %DOCKER_IMAGE%:latest"
+
+                        if errorlevel 1 (
+                            echo Docker image push failed
+                            exit /b 1
+                        )
+
+                        echo Docker image pushed successfully
                     '''
                 }
             }
         }
 
 
-        // =========================================================
+        // ==================================================
         // RUN CONTAINER
-        // =========================================================
+        // ==================================================
 
         stage('Run Container') {
-
             steps {
 
                 echo '========================================'
-                echo 'DEPLOY DOCKER CONTAINER'
+                echo 'RUN DOCKER CONTAINER ON EC2'
                 echo '========================================'
 
                 withCredentials([
-
                     sshUserPrivateKey(
-
                         credentialsId: "${EC2_CREDENTIALS}",
-
                         keyFileVariable: 'SSH_KEY',
-
                         usernameVariable: 'SSH_USER'
                     )
-
                 ]) {
 
                     bat '''
-                        copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
-
                         ssh ^
                         -o StrictHostKeyChecking=no ^
                         -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
                         %SSH_USER%@%EC2_HOST% ^
-                        "docker rm -f %CONTAINER_NAME% 2>/dev/null || true && docker pull %DOCKER_IMAGE%:latest && docker run -d --restart unless-stopped --name %CONTAINER_NAME% -p %APP_PORT%:%APP_PORT% %DOCKER_IMAGE%:latest"
+                        "docker rm -f %CONTAINER_NAME% 2>/dev/null || true; docker run -d --name %CONTAINER_NAME% --restart unless-stopped -p %HOST_PORT%:%APP_PORT% %DOCKER_IMAGE%:%IMAGE_TAG%"
+
+                        if errorlevel 1 (
+                            echo Container deployment failed
+                            exit /b 1
+                        )
+
+                        echo Container started successfully
                     '''
                 }
             }
         }
 
 
-        // =========================================================
+        // ==================================================
         // CHECK CONTAINER
-        // =========================================================
+        // ==================================================
 
         stage('Check Container') {
-
             steps {
 
                 echo '========================================'
@@ -403,38 +402,37 @@ pipeline {
                 echo '========================================'
 
                 withCredentials([
-
                     sshUserPrivateKey(
-
                         credentialsId: "${EC2_CREDENTIALS}",
-
                         keyFileVariable: 'SSH_KEY',
-
                         usernameVariable: 'SSH_USER'
                     )
-
                 ]) {
 
                     bat '''
-                        copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
-
                         ssh ^
                         -o StrictHostKeyChecking=no ^
                         -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
                         %SSH_USER%@%EC2_HOST% ^
                         "docker ps --filter name=%CONTAINER_NAME%"
+
+                        if errorlevel 1 (
+                            echo Container check failed
+                            exit /b 1
+                        )
+
+                        echo Container is running
                     '''
                 }
             }
         }
 
 
-        // =========================================================
+        // ==================================================
         // HEALTH CHECK
-        // =========================================================
+        // ==================================================
 
         stage('Health Check') {
-
             steps {
 
                 echo '========================================'
@@ -442,26 +440,37 @@ pipeline {
                 echo '========================================'
 
                 withCredentials([
-
                     sshUserPrivateKey(
-
                         credentialsId: "${EC2_CREDENTIALS}",
-
                         keyFileVariable: 'SSH_KEY',
-
                         usernameVariable: 'SSH_USER'
                     )
-
                 ]) {
 
                     bat '''
-                        copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
+                        echo Waiting for application startup...
+
+                        timeout /t 10 /nobreak
 
                         ssh ^
                         -o StrictHostKeyChecking=no ^
                         -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
                         %SSH_USER%@%EC2_HOST% ^
-                        "sleep 10 && curl --fail http://localhost:%APP_PORT%/ || (docker logs %CONTAINER_NAME% && exit 1)"
+                        "curl --fail --silent --show-error http://localhost:%HOST_PORT%/"
+
+                        if errorlevel 1 (
+                            echo Application health check failed
+
+                            ssh ^
+                            -o StrictHostKeyChecking=no ^
+                            -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                            %SSH_USER%@%EC2_HOST% ^
+                            "docker logs %CONTAINER_NAME%"
+
+                            exit /b 1
+                        )
+
+                        echo Application health check successful
                     '''
                 }
             }
@@ -469,39 +478,39 @@ pipeline {
     }
 
 
-    // =============================================================
+    // ==================================================
     // POST ACTIONS
-    // =============================================================
+    // ==================================================
 
     post {
 
         success {
 
             echo '========================================'
-
             echo 'PIPELINE SUCCESSFUL'
-
-            echo 'Invoice Tracker deployed successfully'
-
             echo '========================================'
+
+            echo "Docker Image: ${DOCKER_IMAGE}:${IMAGE_TAG}"
+
+            echo "Application URL: http://${EC2_HOST}:${HOST_PORT}"
         }
 
 
         failure {
 
             echo '========================================'
-
             echo 'PIPELINE FAILED'
-
-            echo 'Check Jenkins Console Output'
-
             echo '========================================'
+
+            echo 'Check the failed Jenkins stage logs.'
         }
 
 
         always {
 
-            echo 'Invoice Tracker Jenkins Pipeline finished.'
+            echo '========================================'
+            echo 'CLEANUP JENKINS WORKSPACE'
+            echo '========================================'
 
             bat '''
                 if exist "%WORKSPACE%\\jenkins-ec2-key.pem" (
