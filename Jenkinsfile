@@ -111,6 +111,7 @@ pipeline {
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
+
                     bat '''
                         echo Copying Jenkins SSH key...
 
@@ -126,7 +127,10 @@ pipeline {
 
                         echo Testing SSH connection...
 
-                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "docker --version"
+                        ssh -o StrictHostKeyChecking=no ^
+                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        %SSH_USER%@%EC2_HOST% ^
+                        "docker --version"
                     '''
                 }
             }
@@ -145,8 +149,12 @@ pipeline {
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
+
                     bat '''
-                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "rm -rf ~/invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git ~/invoice-tracker"
+                        ssh -o StrictHostKeyChecking=no ^
+                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        %SSH_USER%@%EC2_HOST% ^
+                        "rm -rf ~/invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git ~/invoice-tracker"
                     '''
                 }
             }
@@ -159,23 +167,37 @@ pipeline {
                 echo '========================================'
 
                 withCredentials([
+
                     usernamePassword(
                         credentialsId: "${DOCKER_CREDENTIALS}",
                         usernameVariable: 'DOCKER_USERNAME',
                         passwordVariable: 'DOCKER_PASSWORD'
+                    ),
+
+                    sshUserPrivateKey(
+                        credentialsId: "${EC2_CREDENTIALS}",
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
                     )
+
                 ]) {
-                    withCredentials([
-                        sshUserPrivateKey(
-                            credentialsId: "${EC2_CREDENTIALS}",
-                            keyFileVariable: 'SSH_KEY',
-                            usernameVariable: 'SSH_USER'
+
+                    bat '''
+                        echo Logging in to Docker Hub on EC2...
+
+                        echo %DOCKER_PASSWORD% | ssh ^
+                        -o StrictHostKeyChecking=no ^
+                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        %SSH_USER%@%EC2_HOST% ^
+                        "docker login --username %DOCKER_USERNAME% --password-stdin"
+
+                        if errorlevel 1 (
+                            echo Docker Hub login failed
+                            exit /b 1
                         )
-                    ]) {
-                        bat '''
-                            echo %DOCKER_PASSWORD% | ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "docker login -u %DOCKER_USERNAME% --password-stdin"
-                        '''
-                    }
+
+                        echo Docker Hub login successful
+                    '''
                 }
             }
         }
@@ -193,8 +215,12 @@ pipeline {
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
+
                     bat '''
-                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "cd ~/invoice-tracker && docker build -t %DOCKER_IMAGE%:latest ."
+                        ssh -o StrictHostKeyChecking=no ^
+                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        %SSH_USER%@%EC2_HOST% ^
+                        "cd ~/invoice-tracker && docker build -t %DOCKER_IMAGE%:latest ."
                     '''
                 }
             }
@@ -213,8 +239,12 @@ pipeline {
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
+
                     bat '''
-                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "docker push %DOCKER_IMAGE%:latest"
+                        ssh -o StrictHostKeyChecking=no ^
+                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        %SSH_USER%@%EC2_HOST% ^
+                        "docker push %DOCKER_IMAGE%:latest"
                     '''
                 }
             }
@@ -233,8 +263,12 @@ pipeline {
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
+
                     bat '''
-                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "docker rm -f %CONTAINER_NAME% 2>/dev/null || true && docker run -d --name %CONTAINER_NAME% --restart unless-stopped -p %APP_PORT%:%APP_PORT% %DOCKER_IMAGE%:latest"
+                        ssh -o StrictHostKeyChecking=no ^
+                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        %SSH_USER%@%EC2_HOST% ^
+                        "docker rm -f %CONTAINER_NAME% 2>/dev/null || true && docker run -d --name %CONTAINER_NAME% --restart unless-stopped -p %APP_PORT%:%APP_PORT% %DOCKER_IMAGE%:latest"
                     '''
                 }
             }
@@ -253,8 +287,12 @@ pipeline {
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
+
                     bat '''
-                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "docker ps"
+                        ssh -o StrictHostKeyChecking=no ^
+                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        %SSH_USER%@%EC2_HOST% ^
+                        "docker ps --filter name=%CONTAINER_NAME%"
                     '''
                 }
             }
@@ -273,8 +311,12 @@ pipeline {
                         usernameVariable: 'SSH_USER'
                     )
                 ]) {
+
                     bat '''
-                        ssh -o StrictHostKeyChecking=no -i "%WORKSPACE%\\jenkins-ec2-key.pem" %SSH_USER%@%EC2_HOST% "sleep 5 && curl -f http://localhost:%APP_PORT%/health"
+                        ssh -o StrictHostKeyChecking=no ^
+                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        %SSH_USER%@%EC2_HOST% ^
+                        "sleep 10 && curl -f http://localhost:%APP_PORT%/health"
                     '''
                 }
             }
@@ -287,8 +329,11 @@ pipeline {
             echo '========================================'
             echo 'PIPELINE SUCCESS'
             echo '========================================'
+
             echo 'Invoice Tracker deployed successfully.'
+
             echo 'Application URL:'
+
             echo "http://${EC2_HOST}:${APP_PORT}/health"
         }
 
