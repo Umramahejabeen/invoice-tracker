@@ -4,7 +4,7 @@ pipeline {
     environment {
         PYTHON_EXE = 'C:\\Users\\umram\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
 
-        EC2_HOST = '3.110.212.222'
+        EC2_HOST = '13.206.204.208'
 
         DOCKER_IMAGE = 'umramahejabeen/invoice-tracker'
 
