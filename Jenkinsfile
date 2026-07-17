@@ -130,134 +130,109 @@ pipeline {
             }
         }
 
-        stage('Prepare EC2') {
-            steps {
-                echo '========================================'
-                echo 'PREPARE EC2'
-                echo '========================================'
+stage('Prepare EC2') {
+    steps {
 
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: "${EC2_CREDENTIALS}",
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
+        echo '========================================'
+        echo 'PREPARE EC2'
+        echo '========================================'
 
-                    bat '''
+        sshagent(credentials: ['ec2-ssh-key']) {
 
-                        echo Testing EC2 connection...
+            bat '''
+                echo Testing EC2 connection...
 
-                        ssh -o StrictHostKeyChecking=no ^
-                        -i "%SSH_KEY%" ^
-                        %SSH_USER%@%EC2_HOST% ^
-                        "echo EC2 CONNECTION SUCCESSFUL && docker --version"
+                ssh -o StrictHostKeyChecking=no ^
+                ec2-user@%EC2_HOST% ^
+                "echo EC2 CONNECTION SUCCESSFUL && docker --version"
 
-                        if errorlevel 1 (
-                            echo EC2 connection failed
-                            exit /b 1
-                        )
+                if errorlevel 1 (
+                    echo EC2 connection failed
+                    exit /b 1
+                )
 
-                        echo EC2 is ready
-                    '''
-                }
-            }
+                echo EC2 is ready
+            '''
         }
+    }
+}
 
-        stage('Clone Project on EC2') {
-            steps {
-                echo '========================================'
-                echo 'CLONE PROJECT ON EC2'
-                echo '========================================'
+stage('Clone Project on EC2') {
+    steps {
 
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: "${EC2_CREDENTIALS}",
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
+        echo '========================================'
+        echo 'CLONE PROJECT ON EC2'
+        echo '========================================'
 
-                    bat '''
-                        ssh -o StrictHostKeyChecking=no ^
-                        -i "%SSH_KEY%" ^
-                        %SSH_USER%@%EC2_HOST% ^
-                        "rm -rf ~/invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git ~/invoice-tracker"
+        sshagent(credentials: ['ec2-ssh-key']) {
 
-                        if errorlevel 1 (
-                            echo Project clone failed
-                            exit /b 1
-                        )
+            bat '''
+                ssh -o StrictHostKeyChecking=no ^
+                ec2-user@%EC2_HOST% ^
+                "rm -rf ~/invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git ~/invoice-tracker"
 
-                        echo Project cloned successfully
-                    '''
-                }
-            }
+                if errorlevel 1 (
+                    echo Project clone failed
+                    exit /b 1
+                )
+
+                echo Project cloned successfully
+            '''
         }
+    }
+}
 
-        stage('Check Docker') {
-            steps {
-                echo '========================================'
-                echo 'CHECK DOCKER ON EC2'
-                echo '========================================'
+stage('Check Docker') {
+    steps {
 
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: "${EC2_CREDENTIALS}",
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
+        echo '========================================'
+        echo 'CHECK DOCKER ON EC2'
+        echo '========================================'
 
-                    bat '''
-                        ssh -o StrictHostKeyChecking=no ^
-                        -i "%SSH_KEY%"
-                        %SSH_USER%@%EC2_HOST% ^
-                        "docker --version && docker info > /dev/null"
+        sshagent(credentials: ['ec2-ssh-key']) {
 
-                        if errorlevel 1 (
-                            echo Docker is not available on EC2
-                            exit /b 1
-                        )
+            bat '''
+                ssh -o StrictHostKeyChecking=no ^
+                ec2-user@%EC2_HOST% ^
+                "docker --version && docker info > /dev/null"
 
-                        echo Docker is running on EC2
-                    '''
-                }
-            }
+                if errorlevel 1 (
+                    echo Docker is not available on EC2
+                    exit /b 1
+                )
+
+                echo Docker is running on EC2
+            '''
         }
+    }
+}
 
-        stage('Build Docker Image') {
-            steps {
-                echo '========================================'
-                echo 'BUILD DOCKER IMAGE ON EC2'
-                echo '========================================'
+stage('Build Docker Image') {
+    steps {
 
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: "${EC2_CREDENTIALS}",
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
+        echo '========================================'
+        echo 'BUILD DOCKER IMAGE ON EC2'
+        echo '========================================'
 
-                    bat '''
-                        ssh -o StrictHostKeyChecking=no ^
-                        -i "%SSH_KEY%" ^
-                        %SSH_USER%@%EC2_HOST% ^
-                        "cd ~/invoice-tracker && docker build -t %IMAGE_NAME%:latest ."
+        sshagent(credentials: ['ec2-ssh-key']) {
 
-                        if errorlevel 1 (
-                            echo Docker image build failed
-                            exit /b 1
-                        )
+            bat '''
+                ssh -o StrictHostKeyChecking=no ^
+                ec2-user@%EC2_HOST% ^
+                "cd ~/invoice-tracker && docker build -t %IMAGE_NAME%:latest ."
 
-                        echo Docker image built successfully
-                    '''
-                }
-            }
+                if errorlevel 1 (
+                    echo Docker image build failed
+                    exit /b 1
+                )
+
+                echo Docker image built successfully
+            '''
         }
+    }
+}
 
-        stage('Push Docker Image') {
+stage('Push Docker Image') {
     steps {
 
         echo '========================================'
@@ -265,161 +240,135 @@ pipeline {
         echo '========================================'
 
         withCredentials([
-
             usernamePassword(
                 credentialsId: "${DOCKER_CREDENTIALS}",
                 usernameVariable: 'DOCKER_USER',
                 passwordVariable: 'DOCKER_TOKEN'
-            ),
-
-            sshUserPrivateKey(
-                credentialsId: "${EC2_CREDENTIALS}",
-                keyFileVariable: 'SSH_KEY',
-                usernameVariable: 'SSH_USER'
             )
-
         ]) {
 
-            bat '''
-ssh -o StrictHostKeyChecking=no ^
--i "%SSH_KEY%" ^
-%SSH_USER%@%EC2_HOST% ^
-"echo %DOCKER_TOKEN% | docker login -u %DOCKER_USER% --password-stdin && docker push %IMAGE_NAME%:latest"
+            sshagent(credentials: ['ec2-ssh-key']) {
 
-if errorlevel 1 (
-    echo Docker push failed
-    exit /b 1
-)
+                bat '''
+                    ssh -o StrictHostKeyChecking=no ^
+                    ec2-user@%EC2_HOST% ^
+                    "echo %DOCKER_TOKEN% | docker login -u %DOCKER_USER% --password-stdin && docker push %IMAGE_NAME%:latest"
 
-echo Docker image pushed successfully
-'''
+                    if errorlevel 1 (
+                        echo Docker push failed
+                        exit /b 1
+                    )
+
+                    echo Docker image pushed successfully
+                '''
+            }
         }
     }
 }
 
-        stage('Run Container') {
-            steps {
-                echo '========================================'
-                echo 'RUN CONTAINER ON EC2'
-                echo '========================================'
+stage('Run Container') {
+    steps {
 
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: "${EC2_CREDENTIALS}",
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
+        echo '========================================'
+        echo 'RUN CONTAINER ON EC2'
+        echo '========================================'
 
-                    bat '''
-                       ssh -o StrictHostKeyChecking=no ^
-                    -i "%SSH_KEY%" ^
-                    %SSH_USER%@%EC2_HOST% ^
-                    "docker rm -f invoice-tracker >/dev/null 2>&1; docker run -d --name invoice-tracker -p 5000:5000 umramahejabeen/invoice-tracker:latest"
-
-                        if errorlevel 1 (
-                            echo Container deployment failed
-                            exit /b 1
-                        )
-
-                        echo Container started successfully
-                    '''
-                }
-            }
-        }
-
-        stage('Check Container') {
-            steps {
-                echo '========================================'
-                echo 'CHECK CONTAINER'
-                echo '========================================'
-
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: "${EC2_CREDENTIALS}",
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
-
-                    bat '''
-                        ssh -o StrictHostKeyChecking=no ^
-                        -i "%SSH_KEY%"
-                        %SSH_USER%@%EC2_HOST% ^
-                        "docker ps --filter name=%CONTAINER_NAME%"
-
-                        if errorlevel 1 (
-                            echo Container check failed
-                            exit /b 1
-                        )
-
-                        echo Container is running
-                    '''
-                }
-            }
-        }
-
-        stage('Health Check') {
-            steps {
-                echo '========================================'
-                echo 'APPLICATION HEALTH CHECK'
-                echo '========================================'
-
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: "${EC2_CREDENTIALS}",
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
-
-                    bat '''
-                        echo Waiting for application startup...
-
-                        timeout /T 10 /NOBREAK
-
-                        ssh -o StrictHostKeyChecking=no ^
-                        -i "%SSH_KEY%"
-                        %SSH_USER%@%EC2_HOST% ^
-                        "curl -f http://localhost:%APP_PORT%/health"
-
-                        if errorlevel 1 (
-                            echo Application health check failed
-                            exit /b 1
-                        )
-
-                        echo Application is healthy
-                    '''
-                }
-            }
-        }
-    }
-
-    post {
-
-        success {
-            echo '========================================'
-            echo 'PIPELINE SUCCESSFUL'
-            echo '========================================'
-            echo 'Invoice Tracker deployed successfully'
-            echo "EC2 Server: ${EC2_HOST}"
-            echo "Docker Image: ${IMAGE_NAME}:latest"
-        }
-
-        failure {
-            echo '========================================'
-            echo 'PIPELINE FAILED'
-            echo '========================================'
-            echo 'Check the failed Jenkins stage'
-        }
-
-        always {
-            echo 'Cleaning Jenkins workspace temporary SSH key...'
+        sshagent(credentials: ['ec2-ssh-key']) {
 
             bat '''
-                echo Cleanup completed.
+                ssh -o StrictHostKeyChecking=no ^
+                ec2-user@%EC2_HOST% ^
+                "docker rm -f invoice-tracker >/dev/null 2>&1; docker run -d --name invoice-tracker -p 5000:5000 umramahejabeen/invoice-tracker:latest"
+
+                if errorlevel 1 (
+                    echo Container deployment failed
+                    exit /b 1
                 )
+
+                echo Container started successfully
             '''
         }
+    }
+}
+
+stage('Check Container') {
+    steps {
+
+        echo '========================================'
+        echo 'CHECK CONTAINER'
+        echo '========================================'
+
+        sshagent(credentials: ['ec2-ssh-key']) {
+
+            bat '''
+                ssh -o StrictHostKeyChecking=no ^
+                ec2-user@%EC2_HOST% ^
+                "docker ps --filter name=%CONTAINER_NAME%"
+
+                if errorlevel 1 (
+                    echo Container check failed
+                    exit /b 1
+                )
+
+                echo Container is running
+            '''
+        }
+    }
+}
+
+stage('Health Check') {
+    steps {
+
+        echo '========================================'
+        echo 'APPLICATION HEALTH CHECK'
+        echo '========================================'
+
+        sshagent(credentials: ['ec2-ssh-key']) {
+
+            bat '''
+                echo Waiting for application startup...
+
+                timeout /T 10 /NOBREAK
+
+                ssh -o StrictHostKeyChecking=no ^
+                ec2-user@%EC2_HOST% ^
+                "curl -f http://localhost:%APP_PORT%/health"
+
+                if errorlevel 1 (
+                    echo Application health check failed
+                    exit /b 1
+                )
+
+                echo Application is healthy
+            '''
+        }
+    }
+}
+    }
+
+post {
+
+    success {
+        echo '========================================'
+        echo 'PIPELINE SUCCESSFUL'
+        echo '========================================'
+        echo 'Invoice Tracker deployed successfully'
+        echo "EC2 Server: ${EC2_HOST}"
+        echo "Docker Image: ${IMAGE_NAME}:latest"
+    }
+
+    failure {
+        echo '========================================'
+        echo 'PIPELINE FAILED'
+        echo '========================================'
+        echo 'Check the failed Jenkins stage'
+    }
+
+    always {
+        echo 'Cleaning workspace...'
+
+        bat '''
+            echo Cleanup completed.
+        '''
     }
 }
