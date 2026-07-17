@@ -130,6 +130,38 @@ pipeline {
             }
         }
 
+
+stage('Prepare SSH Key') {
+    steps {
+
+        echo '========================================'
+        echo 'PREPARE SSH KEY'
+        echo '========================================'
+
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: "${EC2_CREDENTIALS}",
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
+            )
+        ]) {
+
+            bat '''
+                if not exist C:\\Jenkins mkdir C:\\Jenkins
+
+                copy /Y "%SSH_KEY%" C:\\Jenkins\\ec2.pem
+
+                icacls C:\\Jenkins\\ec2.pem /inheritance:r
+                icacls C:\\Jenkins\\ec2.pem /grant SYSTEM:F
+                icacls C:\\Jenkins\\ec2.pem /grant Administrators:F
+
+                echo SSH key prepared.
+            '''
+        }
+    }
+}
+
+
 stage('Prepare EC2') {
     steps {
 
@@ -137,13 +169,20 @@ stage('Prepare EC2') {
         echo 'PREPARE EC2'
         echo '========================================'
 
-        sshagent(credentials: ['ec2-ssh-key']) {
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: "${EC2_CREDENTIALS}",
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
+            )
+        ]) {
 
             bat '''
                 echo Testing EC2 connection...
 
-                ssh -o StrictHostKeyChecking=no ^
-                ec2-user@%EC2_HOST% ^
+                ssh -i C:\\Jenkins\\ec2.pem ^
+                -o StrictHostKeyChecking=no ^
+                %SSH_USER%@%EC2_HOST% ^
                 "echo EC2 CONNECTION SUCCESSFUL && docker --version"
 
                 if errorlevel 1 (
