@@ -145,20 +145,11 @@ pipeline {
                 ]) {
 
                     bat '''
-                        echo Copying Jenkins SSH key...
-
-                        copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
-
-                        icacls "%WORKSPACE%\\jenkins-ec2-key.pem" /inheritance:r
-
-                        icacls "%WORKSPACE%\\jenkins-ec2-key.pem" /grant:r "SYSTEM:(R)"
-
-                        icacls "%WORKSPACE%\\jenkins-ec2-key.pem" /grant:r "Administrators:(R)"
 
                         echo Testing EC2 connection...
 
                         ssh -o StrictHostKeyChecking=no ^
-                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        -i "%SSH_KEY%" ^
                         %SSH_USER%@%EC2_HOST% ^
                         "echo EC2 CONNECTION SUCCESSFUL && docker --version"
 
@@ -189,7 +180,7 @@ pipeline {
 
                     bat '''
                         ssh -o StrictHostKeyChecking=no ^
-                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        -i "%SSH_KEY%" ^
                         %SSH_USER%@%EC2_HOST% ^
                         "rm -rf ~/invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git ~/invoice-tracker"
 
@@ -220,7 +211,7 @@ pipeline {
 
                     bat '''
                         ssh -o StrictHostKeyChecking=no ^
-                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        -i "%SSH_KEY%"
                         %SSH_USER%@%EC2_HOST% ^
                         "docker --version && docker info > /dev/null"
 
@@ -251,7 +242,7 @@ pipeline {
 
                     bat '''
                         ssh -o StrictHostKeyChecking=no ^
-                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        -i "%SSH_KEY%" ^
                         %SSH_USER%@%EC2_HOST% ^
                         "cd ~/invoice-tracker && docker build -t %IMAGE_NAME%:latest ."
 
@@ -290,12 +281,10 @@ pipeline {
         ]) {
 
             bat '''
-copy /Y "%SSH_KEY%" "%WORKSPACE%\\jenkins-ec2-key.pem"
-
 ssh -o StrictHostKeyChecking=no ^
--i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+-i "%SSH_KEY%" ^
 %SSH_USER%@%EC2_HOST% ^
-"echo '%DOCKER_TOKEN%' | docker login -u %DOCKER_USER% --password-stdin && docker push %IMAGE_NAME%:latest"
+"echo %DOCKER_TOKEN% | docker login -u %DOCKER_USER% --password-stdin && docker push %IMAGE_NAME%:latest"
 
 if errorlevel 1 (
     echo Docker push failed
@@ -324,7 +313,7 @@ echo Docker image pushed successfully
 
                     bat '''
                        ssh -o StrictHostKeyChecking=no ^
-                    -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                    -i "%SSH_KEY%" ^
                     %SSH_USER%@%EC2_HOST% ^
                     "docker rm -f invoice-tracker >/dev/null 2>&1; docker run -d --name invoice-tracker -p 5000:5000 umramahejabeen/invoice-tracker:latest"
 
@@ -355,7 +344,7 @@ echo Docker image pushed successfully
 
                     bat '''
                         ssh -o StrictHostKeyChecking=no ^
-                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        -i "%SSH_KEY%"
                         %SSH_USER%@%EC2_HOST% ^
                         "docker ps --filter name=%CONTAINER_NAME%"
 
@@ -390,7 +379,7 @@ echo Docker image pushed successfully
                         timeout /T 10 /NOBREAK
 
                         ssh -o StrictHostKeyChecking=no ^
-                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                        -i "%SSH_KEY%"
                         %SSH_USER%@%EC2_HOST% ^
                         "curl -f http://localhost:%APP_PORT%/health"
 
@@ -428,8 +417,7 @@ echo Docker image pushed successfully
             echo 'Cleaning Jenkins workspace temporary SSH key...'
 
             bat '''
-                if exist "%WORKSPACE%\\jenkins-ec2-key.pem" (
-                    del /F /Q "%WORKSPACE%\\jenkins-ec2-key.pem"
+                echo Cleanup completed.
                 )
             '''
         }
