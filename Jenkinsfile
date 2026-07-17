@@ -5,7 +5,7 @@ pipeline {
     environment {
         PYTHON_EXE = 'C:\\Users\\umram\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
 
-        EC2_HOST = '13.206.204.208'
+        EC2_HOST = '3.110.81.211'
         EC2_CREDENTIALS = 'ec2-ssh-key'
 
         DOCKER_CREDENTIALS = 'dockerhub-creds'
@@ -324,9 +324,9 @@ echo Docker image pushed successfully
 
                     bat '''
                        ssh -o StrictHostKeyChecking=no ^
-                        -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
-                        %SSH_USER%@%EC2_HOST% ^
-                        "docker rm -f invoice-tracker >/dev/null 2>&1; docker run -d --name invoice-tracker -p 5000:5000 umramahejabeen/invoice-tracker:latest"
+                    -i "%WORKSPACE%\\jenkins-ec2-key.pem" ^
+                    %SSH_USER%@%EC2_HOST% ^
+                    "docker rm -f invoice-tracker >/dev/null 2>&1; docker run -d --name invoice-tracker -p 5000:5000 umramahejabeen/invoice-tracker:latest"
 
                         if errorlevel 1 (
                             echo Container deployment failed
