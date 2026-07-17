@@ -203,11 +203,18 @@ stage('Clone Project on EC2') {
         echo 'CLONE PROJECT ON EC2'
         echo '========================================'
 
-        sshagent(credentials: ['ec2-ssh-key']) {
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: "${EC2_CREDENTIALS}",
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
+            )
+        ]) {
 
             bat '''
-                ssh -o StrictHostKeyChecking=no ^
-                ec2-user@%EC2_HOST% ^
+                ssh -i C:\\Jenkins\\ec2.pem ^
+                -o StrictHostKeyChecking=no ^
+                %SSH_USER%@%EC2_HOST% ^
                 "rm -rf ~/invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git ~/invoice-tracker"
 
                 if errorlevel 1 (
