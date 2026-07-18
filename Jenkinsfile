@@ -361,37 +361,6 @@ stage('Run Container') {
     }
 }
 
-stage('Check Docker') {
-    steps {
-
-        echo '========================================'
-        echo 'CHECK DOCKER ON EC2'
-        echo '========================================'
-
-        withCredentials([
-            sshUserPrivateKey(
-                credentialsId: "${EC2_CREDENTIALS}",
-                keyFileVariable: 'SSH_KEY',
-                usernameVariable: 'SSH_USER'
-            )
-        ]) {
-
-            bat '''
-                ssh -i C:\\Jenkins\\ec2.pem ^
-                -o StrictHostKeyChecking=no ^
-                %SSH_USER%@%EC2_HOST% ^
-                "docker --version && docker info > /dev/null"
-
-                if errorlevel 1 (
-                    echo Docker is not available on EC2
-                    exit /b 1
-                )
-
-                echo Docker is running on EC2
-            '''
-        }
-    }
-}
 
 stage('Health Check') {
     steps {
@@ -428,6 +397,7 @@ stage('Health Check') {
         }
     }
 }
+
     }
 
 post {
