@@ -235,11 +235,18 @@ stage('Check Docker') {
         echo 'CHECK DOCKER ON EC2'
         echo '========================================'
 
-        sshagent(credentials: ['ec2-ssh-key']) {
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: "${EC2_CREDENTIALS}",
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
+            )
+        ]) {
 
             bat '''
-                ssh -o StrictHostKeyChecking=no ^
-                ec2-user@%EC2_HOST% ^
+                ssh -i C:\\Jenkins\\ec2.pem ^
+                -o StrictHostKeyChecking=no ^
+                %SSH_USER%@%EC2_HOST% ^
                 "docker --version && docker info > /dev/null"
 
                 if errorlevel 1 (
@@ -260,11 +267,18 @@ stage('Build Docker Image') {
         echo 'BUILD DOCKER IMAGE ON EC2'
         echo '========================================'
 
-        sshagent(credentials: ['ec2-ssh-key']) {
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: "${EC2_CREDENTIALS}",
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
+            )
+        ]) {
 
             bat '''
-                ssh -o StrictHostKeyChecking=no ^
-                ec2-user@%EC2_HOST% ^
+                ssh -i C:\\Jenkins\\ec2.pem ^
+                -o StrictHostKeyChecking=no ^
+                %SSH_USER%@%EC2_HOST% ^
                 "cd ~/invoice-tracker && docker build -t %IMAGE_NAME%:latest ."
 
                 if errorlevel 1 (
@@ -290,24 +304,27 @@ stage('Push Docker Image') {
                 credentialsId: "${DOCKER_CREDENTIALS}",
                 usernameVariable: 'DOCKER_USER',
                 passwordVariable: 'DOCKER_TOKEN'
+            ),
+            sshUserPrivateKey(
+                credentialsId: "${EC2_CREDENTIALS}",
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
             )
         ]) {
 
-            sshagent(credentials: ['ec2-ssh-key']) {
+            bat '''
+                ssh -i C:\\Jenkins\\ec2.pem ^
+                -o StrictHostKeyChecking=no ^
+                %SSH_USER%@%EC2_HOST% ^
+                "echo %DOCKER_TOKEN% | docker login -u %DOCKER_USER% --password-stdin && docker push %IMAGE_NAME%:latest"
 
-                bat '''
-                    ssh -o StrictHostKeyChecking=no ^
-                    ec2-user@%EC2_HOST% ^
-                    "echo %DOCKER_TOKEN% | docker login -u %DOCKER_USER% --password-stdin && docker push %IMAGE_NAME%:latest"
+                if errorlevel 1 (
+                    echo Docker push failed
+                    exit /b 1
+                )
 
-                    if errorlevel 1 (
-                        echo Docker push failed
-                        exit /b 1
-                    )
-
-                    echo Docker image pushed successfully
-                '''
-            }
+                echo Docker image pushed successfully
+            '''
         }
     }
 }
@@ -319,11 +336,18 @@ stage('Run Container') {
         echo 'RUN CONTAINER ON EC2'
         echo '========================================'
 
-        sshagent(credentials: ['ec2-ssh-key']) {
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: "${EC2_CREDENTIALS}",
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
+            )
+        ]) {
 
             bat '''
-                ssh -o StrictHostKeyChecking=no ^
-                ec2-user@%EC2_HOST% ^
+                ssh -i C:\\Jenkins\\ec2.pem ^
+                -o StrictHostKeyChecking=no ^
+                %SSH_USER%@%EC2_HOST% ^
                 "docker rm -f invoice-tracker >/dev/null 2>&1; docker run -d --name invoice-tracker -p 5000:5000 umramahejabeen/invoice-tracker:latest"
 
                 if errorlevel 1 (
@@ -337,26 +361,33 @@ stage('Run Container') {
     }
 }
 
-stage('Check Container') {
+stage('Check Docker') {
     steps {
 
         echo '========================================'
-        echo 'CHECK CONTAINER'
+        echo 'CHECK DOCKER ON EC2'
         echo '========================================'
 
-        sshagent(credentials: ['ec2-ssh-key']) {
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: "${EC2_CREDENTIALS}",
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
+            )
+        ]) {
 
             bat '''
-                ssh -o StrictHostKeyChecking=no ^
-                ec2-user@%EC2_HOST% ^
-                "docker ps --filter name=%CONTAINER_NAME%"
+                ssh -i C:\\Jenkins\\ec2.pem ^
+                -o StrictHostKeyChecking=no ^
+                %SSH_USER%@%EC2_HOST% ^
+                "docker --version && docker info > /dev/null"
 
                 if errorlevel 1 (
-                    echo Container check failed
+                    echo Docker is not available on EC2
                     exit /b 1
                 )
 
-                echo Container is running
+                echo Docker is running on EC2
             '''
         }
     }
@@ -369,15 +400,22 @@ stage('Health Check') {
         echo 'APPLICATION HEALTH CHECK'
         echo '========================================'
 
-        sshagent(credentials: ['ec2-ssh-key']) {
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: "${EC2_CREDENTIALS}",
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
+            )
+        ]) {
 
             bat '''
                 echo Waiting for application startup...
 
                 timeout /T 10 /NOBREAK
 
-                ssh -o StrictHostKeyChecking=no ^
-                ec2-user@%EC2_HOST% ^
+                ssh -i C:\\Jenkins\\ec2.pem ^
+                -o StrictHostKeyChecking=no ^
+                %SSH_USER%@%EC2_HOST% ^
                 "curl -f http://localhost:%APP_PORT%/health"
 
                 if errorlevel 1 (
