@@ -196,11 +196,11 @@ stage('Prepare EC2') {
     }
 }
 
-stage('Clone Project on EC2') {
+stage('Update Project on EC2') {
     steps {
 
         echo '========================================'
-        echo 'CLONE PROJECT ON EC2'
+        echo 'UPDATE PROJECT ON EC2'
         echo '========================================'
 
         withCredentials([
@@ -215,14 +215,14 @@ stage('Clone Project on EC2') {
                 ssh -i C:\\Jenkins\\ec2.pem ^
                 -o StrictHostKeyChecking=no ^
                 %SSH_USER%@%EC2_HOST% ^
-                "rm -rf ~/invoice-tracker && git clone https://github.com/Umramahejabeen/invoice-tracker.git ~/invoice-tracker"
+                "cd ~/invoice-tracker && git fetch origin && git reset --hard origin/main"
 
                 if errorlevel 1 (
-                    echo Project clone failed
+                    echo Project update failed
                     exit /b 1
                 )
 
-                echo Project cloned successfully
+                echo Project updated successfully
             '''
         }
     }
