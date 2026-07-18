@@ -14,6 +14,32 @@ from app.models import (
 app = Flask(__name__)
 
 
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify(
+        {
+            "message": "Invoice Tracker API is running successfully",
+            "status": "healthy",
+            "version": "1.0.0",
+            "available_endpoints": {
+                "health": "/health",
+                "clients": {
+                    "GET": "/clients",
+                    "POST": "/clients",
+                },
+                "client_by_id": "/clients/<client_id>",
+                "invoices": {
+                    "GET": "/invoices",
+                    "POST": "/invoices",
+                },
+                "invoice_by_id": "/invoices/<invoice_id>",
+                "overdue_invoices": "/invoices/overdue",
+                "update_invoice_status": "/invoices/<invoice_id>/status",
+            },
+        }
+    ), 200
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "healthy"}), 200
